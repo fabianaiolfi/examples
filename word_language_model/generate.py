@@ -30,6 +30,8 @@ parser.add_argument('--temperature', type=float, default=1.0,
                     help='temperature - higher will increase diversity')
 parser.add_argument('--log-interval', type=int, default=100,
                     help='reporting interval')
+parser.add_argument('--strategy', type=str, default='sampling',
+                    help='toggle between sampling and greedy search')
 args = parser.parse_args()
 
 # Set the random seed manually for reproducibility.
@@ -61,14 +63,33 @@ with open(args.outf, 'w') as outf:
             if is_transformer_model:
                 output = model(input, False)
                 word_weights = output[-1].squeeze().div(args.temperature).exp().cpu()
-                word_idx = torch.multinomial(word_weights, 1)[0]
-                word_tensor = torch.Tensor([[word_idx]]).long().to(device)
-                input = torch.cat([input, word_tensor], 0)
+
+                # Sampling: Sample from the distribution over the vocabulary
+                if args.strategy == 'sampling':
+                    word_idx = torch.multinomial(word_weights, 1)[0]
+                    word_tensor = torch.Tensor([[word_idx]]).long().to(device)
+                    input = torch.cat([input, word_tensor], 0)
+
+                # Greedy search
+                if args.strategy == 'greedy':
+                    word_idx = torch.max(word_weights, 0)[1] # https://discuss.pytorch.org/t/argmax-with-pytorch/1528
+                    word_tensor = torch.Tensor([[word_idx]]).long().to(device)
+                    input = torch.cat([input, word_tensor], 0)
+
             else:
                 output, hidden = model(input, hidden)
-                word_weights = output.squeeze().div(args.temperature).exp().cpu()
-                word_idx = torch.multinomial(word_weights, 1)[0]
-                input.fill_(word_idx)
+                word_weights = output.squeeze().div(args.temperature).exp().cpu() # word_weights: a tensor with probabilites for entire vocab
+
+                # Sampling: Sample from the distribution over the vocabulary
+                if args.strategy == 'sampling':
+                    word_idx = torch.multinomial(word_weights, 1)[0] # word_idx: index of the word in the multinomial distribution
+                    input.fill_(word_idx)
+
+                # Greedy search
+                if args.strategy == 'greedy':
+                    word_idx = torch.max(word_weights, 0)[1] # https://discuss.pytorch.org/t/argmax-with-pytorch/1528
+                    input.fill_(word_idx)
+
 
             word = corpus.dictionary.idx2word[word_idx]
 
